@@ -116,7 +116,8 @@ def test_get_tags_fields(mock_fields, mock_tags):
     client = InfluxAlchemy(db)
     fizz = Measurement.new("fuzz")
     query = client.query(fizz)
-    assert str(query) == "SELECT fizz, buzz, foo, goo FROM fuzz;"
+    #assert str(query) == "SELECT fizz, buzz, foo, goo FROM fuzz;"
+    assert str(query) == "SELECT * FROM fuzz;"
 
 
 @mock.patch("influxalchemy.InfluxAlchemy.tags")

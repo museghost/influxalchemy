@@ -1,7 +1,13 @@
 """ InfluxDB Query Object. """
+
 import functools
 
 from . import meta
+
+
+class MultiResultSet(object):
+    def __init__(self, entities):
+        self._entities = entities
 
 
 class InfluxDBQuery(object):
@@ -38,6 +44,48 @@ class InfluxDBQuery(object):
 
     def __repr__(self):
         return str(self)
+
+    def __iter__(self):
+
+        for z in self._entities:
+            print("type(z)")
+            print(type(z))
+
+        rs = self._client.bind.query(str(self))
+        if not rs:
+            return
+
+        single_entity = len(self._entities) == 1
+
+        # a generator()
+        #self._client._cursor = rs.get_points(measurement=self._from, tags=None)
+        self._client._cursor = rs.get_points()
+
+        try:
+
+            for raw_row in self._client._cursor:
+                if single_entity:
+                    _cls = self._entities[0]
+                    _cls = _cls.__new__(_cls)
+                    _cls.__dict__.update(**raw_row)
+                else:
+                    _cls = MultiResultSet(self._entities)
+                    _cls.__dict__.update(raw_row)
+
+                yield _cls
+
+        except StopIteration:
+            return None
+        except Exception as err:
+            self._client._cursor.close()
+
+        self._client._cursor.close()
+
+    def all(self):
+        return list(iter(self))
+
+    def first(self):
+        return next(iter(self), None)
 
     def execute(self):
         """ Execute query. """
@@ -78,6 +126,7 @@ class InfluxDBQuery(object):
     @property
     def _select(self):
         """ SELECT statement. """
+        single_entity = len(self._entities) == 1
         selects = []
         for ent in self._entities:
             # Entity is a Tag
