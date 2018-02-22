@@ -14,7 +14,15 @@ class InfluxAlchemy(object):
         assert self.bind._database is not None, \
             "InfluxDB client database cannot be None"
 
-        self._cursor = None
+        self._cursors = []
+        self._cursors_name = []
+
+    def reset_cursors(self):
+        del self._cursors[:]
+
+    def close(self):
+        if self.bind:
+            self.bind.close()
 
     def query(self, *entities):
         """ Query InfluxDB entities. Entities are either Measurements or

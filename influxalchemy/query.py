@@ -3,11 +3,7 @@
 import functools
 
 from . import meta
-
-
-class MultiResultSet(object):
-    def __init__(self, entities):
-        self._entities = entities
+from . import resultset
 
 
 class InfluxDBQuery(object):
@@ -28,6 +24,8 @@ class InfluxDBQuery(object):
         self._groupby = groupby
         self._limit = limit
 
+        self._measurements = None
+
     def __str__(self):
         select = ", ".join(self._select)
         from_ = self._from
@@ -46,40 +44,51 @@ class InfluxDBQuery(object):
         return str(self)
 
     def __iter__(self):
-
-        for z in self._entities:
-            print("type(z)")
-            print(type(z))
-
         rs = self._client.bind.query(str(self))
         if not rs:
-            return
+            return None
 
-        single_entity = len(self._entities) == 1
+        single_entity = len(self._measurements) == 1
 
         # a generator()
-        #self._client._cursor = rs.get_points(measurement=self._from, tags=None)
-        self._client._cursor = rs.get_points()
-
         try:
+            self._client.reset_cursors()
 
-            for raw_row in self._client._cursor:
-                if single_entity:
+            if single_entity:
+                self._client._cursors.append(rs.get_points(measurement=self._from, tags=None))
+
+                for raw_row in self._client._cursor[0]:
                     _cls = self._entities[0]
                     _cls = _cls.__new__(_cls)
                     _cls.__dict__.update(**raw_row)
-                else:
-                    _cls = MultiResultSet(self._entities)
-                    _cls.__dict__.update(raw_row)
+                    yield _cls
 
-                yield _cls
+            else:
+                for ms in self._measurements:
+                    self._client._cursors.append(rs.get_points(measurement=str(ms), tags=None))
+                    self._client._cursors_name.append(str(ms))
+
+                ent_idx = 0
+                for cursor in self._client._cursors:
+                    for raw_row in cursor:
+                        try:
+                            _cls = resultset.MultiResultSet(self._entities)
+                            _cls.update(self._client._cursors_name[ent_idx], raw_row)
+                        except StopIteration:
+                            break
+
+                        yield _cls
+
+                    ent_idx += 1
 
         except StopIteration:
             return None
         except Exception as err:
-            self._client._cursor.close()
+            self._client.close()
 
-        self._client._cursor.close()
+        self._client.close()
+
+        return None
 
     def all(self):
         return list(iter(self))
@@ -120,8 +129,12 @@ class InfluxDBQuery(object):
     @property
     def measurement(self):
         """ Query measurement. """
-        measurements = set(x.measurement for x in self._entities)
-        return functools.reduce(lambda x, y: x | y, measurements)
+        # remove the duplicated measurement
+        #measurements = set(x.measurement for x in self._entities)
+        self._measurements = set(x.measurement for x in self._entities)
+        #print("self_.measurements")
+        #print(self._measurements)
+        return functools.reduce(lambda x, y: x | y, self._measurements)
 
     @property
     def _select(self):
@@ -132,16 +145,6 @@ class InfluxDBQuery(object):
             # Entity is a Tag
             if isinstance(ent, meta.Tag):
                 selects.append(str(ent))
-            # Entity is a Measurement
-            else:
-                try:
-                    for tag in self._client.tags(ent):
-                        selects.append(tag)
-                    for field in self._client.fields(ent):
-                        selects.append(field)
-                # pylint: disable=broad-except
-                except Exception:
-                    pass
         return selects or ["*"]
 
     @property

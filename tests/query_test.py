@@ -10,6 +10,7 @@ import influxdb
 import mock
 from influxalchemy.client import InfluxAlchemy
 from influxalchemy.measurement import Measurement
+from influxalchemy.resultset import MultiResultSet
 
 
 @mock.patch("influxdb.InfluxDBClient.query")
@@ -116,7 +117,6 @@ def test_get_tags_fields(mock_fields, mock_tags):
     client = InfluxAlchemy(db)
     fizz = Measurement.new("fuzz")
     query = client.query(fizz)
-    #assert str(query) == "SELECT fizz, buzz, foo, goo FROM fuzz;"
     assert str(query) == "SELECT * FROM fuzz;"
 
 
@@ -162,3 +162,73 @@ def test_limit_3(mock_limit):
                   .limit(2)
     assert str(query) == \
         "SELECT * FROM fuzz WHERE (foo = '123') AND (boo = '555') LIMIT 2;"
+
+
+def test_multi_measurements_1():
+    db = influxdb.InfluxDBClient(database="example")
+    client = InfluxAlchemy(db)
+    fizz = Measurement.new("fuzz")
+    bizz = Measurement.new("buzz")
+    query = client.query(fizz, bizz).limit(10)
+    assert str(query) == "SELECT * FROM /fuzz|buzz/ LIMIT 10;"
+
+
+def test_multi_measurements_2():
+    db = influxdb.InfluxDBClient(database="marketdata", port=28088)
+    client = InfluxAlchemy(db)
+    fizz = Measurement.new("fuzz")
+    bizz = Measurement.new("buzz")
+    query = client.query(fizz, bizz).limit(10)
+
+    assert None == query.first()
+
+
+def test_multi_measurements_3():
+    db = influxdb.InfluxDBClient(database="marketdata", port=28088)
+    client = InfluxAlchemy(db)
+    fizz = Measurement.new("term_structure_px")
+    bizz = Measurement.new("term_structure_symbol_list")
+    query = client.query(fizz, bizz).limit(2)
+
+    rs = query.first()
+    assert True == isinstance(rs, MultiResultSet)
+
+
+def test_multi_measurements_4():
+    db = influxdb.InfluxDBClient(database="marketdata", port=28088)
+    client = InfluxAlchemy(db)
+    fizz = Measurement.new("term_structure_px")
+    bizz = Measurement.new("term_structure_symbol_list")
+    query = client.query(fizz, bizz).limit(2)
+
+    rs1 = query.first()
+
+    rs2 = query.all()
+    assert type(rs1) == type(rs2[0])
+    assert True == isinstance(rs2, list)
+    # since 2 measurement x 2 limits = 4 if all data are available
+    print(len(rs2))
+    assert 4 == len(rs2)
+
+
+
+def test_multi_measurements_5():
+    db = influxdb.InfluxDBClient(database="marketdata", port=28088)
+    client = InfluxAlchemy(db)
+    fizz = Measurement.new("term_structure_fit")
+    bizz = Measurement.new("term_structure_symbol_list")
+    query = client.query(fizz.beta_0, bizz.s_1).limit(2)
+
+    rs1 = query.first()
+
+    rs2 = query.all()
+    assert type(rs1) == type(rs2[0])
+    assert True == isinstance(rs2, list)
+    # since 2 measurement x 2 limits = 4 if all data are available
+    assert 4 == len(rs2)
+
+    for row in rs2:
+        print(row.time)
+        print(row.measurement)
+
+
